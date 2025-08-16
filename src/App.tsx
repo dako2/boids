@@ -44,6 +44,7 @@ function App() {
   const [separationRadius, setSeparationRadius] = useState(30)
   const [alignmentRadius, setAlignmentRadius] = useState(60)
   const [cohesionRadius, setCohesionRadius] = useState(60)
+  const [energyLevel, setEnergyLevel] = useState(1.0)
 
   const CANVAS_WIDTH = 1200
   const CANVAS_HEIGHT = 800
@@ -294,28 +295,30 @@ function App() {
       const leaderForce = nearestLeader ? followLeader(boid, nearestLeader) : { x: 0, y: 0 }
       const edgeForce = edgeAvoidance(boid)
 
-      const totalForceX = sep.x * separationWeight + 
+      const totalForceX = (sep.x * separationWeight + 
                          ali.x * alignmentWeight + 
                          coh.x * cohesionWeight + 
                          leaderForce.x * leaderInfluence +
-                         edgeForce.x * 3.0
+                         edgeForce.x * 3.0) * energyLevel
 
-      const totalForceY = sep.y * separationWeight + 
+      const totalForceY = (sep.y * separationWeight + 
                          ali.y * alignmentWeight + 
                          coh.y * cohesionWeight + 
                          leaderForce.y * leaderInfluence +
-                         edgeForce.y * 3.0
+                         edgeForce.y * 3.0) * energyLevel
 
-      boid.vx += totalForceX
-      boid.vy += totalForceY
+      boid.vx += totalForceX * energyLevel
+      boid.vy += totalForceY * energyLevel
 
       const speed = Math.sqrt(boid.vx ** 2 + boid.vy ** 2)
-      if (speed > boid.maxSpeed) {
-        boid.vx = (boid.vx / speed) * boid.maxSpeed
-        boid.vy = (boid.vy / speed) * boid.maxSpeed
-      } else if (speed < MIN_SPEED) {
-        boid.vx = (boid.vx / speed) * MIN_SPEED
-        boid.vy = (boid.vy / speed) * MIN_SPEED
+      const adjustedMaxSpeed = boid.maxSpeed * energyLevel
+      const adjustedMinSpeed = MIN_SPEED * energyLevel
+      if (speed > adjustedMaxSpeed) {
+        boid.vx = (boid.vx / speed) * adjustedMaxSpeed
+        boid.vy = (boid.vy / speed) * adjustedMaxSpeed
+      } else if (speed < adjustedMinSpeed) {
+        boid.vx = (boid.vx / speed) * adjustedMinSpeed
+        boid.vy = (boid.vy / speed) * adjustedMinSpeed
       }
 
       boid.x += boid.vx
@@ -559,6 +562,20 @@ function App() {
                 </option>
               ))}
             </select>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <label className="text-white font-medium">Energy Level:</label>
+            <input
+              type="range"
+              min="0.1"
+              max="3.0"
+              step="0.1"
+              value={energyLevel}
+              onChange={(e) => setEnergyLevel(Number(e.target.value))}
+              className="w-20"
+            />
+            <span className="text-white w-8">{energyLevel.toFixed(1)}</span>
           </div>
         </div>
 
