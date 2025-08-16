@@ -585,12 +585,19 @@ function App() {
                 <input
                   type="range"
                   min="15"
-                  max="50"
-                  value={separationRadius}
+                  max="100"
+                  value={Math.min(separationRadius, 100)}
                   onChange={(e) => setSeparationRadius(Number(e.target.value))}
                   className="w-16"
                 />
-                <span className="text-white text-xs w-8">{separationRadius}</span>
+                <input
+                  type="number"
+                  min="15"
+                  max="500"
+                  value={separationRadius}
+                  onChange={(e) => setSeparationRadius(Number(e.target.value))}
+                  className="w-16 bg-slate-700 text-white text-xs px-1 py-0.5 rounded"
+                />
               </div>
             </div>
 
