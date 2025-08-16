@@ -9,25 +9,35 @@ interface Boid {
   angle: number
   maxSpeed: number
   maxForce: number
+  followingLeader: number | null
 }
 
 interface LeaderBird {
+  id: number
   x: number
   y: number
   vx: number
   vy: number
   targetX: number
   targetY: number
+  color: string
+  autonomous: boolean
 }
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animationRef = useRef<number>()
   const boidsRef = useRef<Boid[]>([])
-  const leaderRef = useRef<LeaderBird>({ x: 600, y: 400, vx: 0, vy: 0, targetX: 600, targetY: 400 })
+  const leadersRef = useRef<LeaderBird[]>([
+    { id: 0, x: 400, y: 300, vx: 0, vy: 0, targetX: 400, targetY: 300, color: '#f59e0b', autonomous: false },
+    { id: 1, x: 800, y: 500, vx: 0, vy: 0, targetX: 800, targetY: 500, color: '#10b981', autonomous: true },
+    { id: 2, x: 600, y: 200, vx: 0, vy: 0, targetX: 600, targetY: 200, color: '#8b5cf6', autonomous: true }
+  ])
   const [isRunning, setIsRunning] = useState(true)
-  const [boidCount, setBoidCount] = useState(80)
+  const [boidCount, setBoidCount] = useState(120)
   const [leaderInfluence, setLeaderInfluence] = useState(1.2)
+  const [numLeaders, setNumLeaders] = useState(3)
+  const [mouseControlledLeader, setMouseControlledLeader] = useState(0)
   const [separationWeight, setSeparationWeight] = useState(2.0)
   const [alignmentWeight, setAlignmentWeight] = useState(1.0)
   const [cohesionWeight, setCohesionWeight] = useState(1.0)
@@ -56,6 +66,7 @@ function App() {
         angle: angle,
         maxSpeed: speed,
         maxForce: 0.15 + Math.random() * 0.1,
+        followingLeader: null,
       })
     }
     boidsRef.current = boids
@@ -194,6 +205,21 @@ function App() {
     return limitForce({ x: steerX * 2, y: steerY * 2 }, boid.maxForce * 2)
   }
 
+  const findNearestLeader = (boid: Boid, leaders: LeaderBird[]) => {
+    let nearestLeader = null
+    let minDistance = Infinity
+
+    for (const leader of leaders) {
+      const d = distanceToLeader(boid, leader)
+      if (d < LEADER_FOLLOW_RADIUS && d < minDistance) {
+        minDistance = d
+        nearestLeader = leader
+      }
+    }
+
+    return nearestLeader
+  }
+
   const followLeader = (boid: Boid, leader: LeaderBird) => {
     const d = distanceToLeader(boid, leader)
 
@@ -209,50 +235,63 @@ function App() {
     return { x: 0, y: 0 }
   }
 
-  const updateLeader = () => {
-    const leader = leaderRef.current
+  const updateLeaders = () => {
+    const leaders = leadersRef.current
     
-    const dx = leader.targetX - leader.x
-    const dy = leader.targetY - leader.y
-    const distance = Math.sqrt(dx ** 2 + dy ** 2)
-    
-    if (distance > 5) {
-      const acceleration = 0.15
-      leader.vx += (dx / distance) * acceleration
-      leader.vy += (dy / distance) * acceleration
-      
-      const speed = Math.sqrt(leader.vx ** 2 + leader.vy ** 2)
-      if (speed > LEADER_MAX_SPEED) {
-        leader.vx = (leader.vx / speed) * LEADER_MAX_SPEED
-        leader.vy = (leader.vy / speed) * LEADER_MAX_SPEED
+    for (const leader of leaders) {
+      if (leader.autonomous) {
+        const time = Date.now() * 0.001
+        const offsetX = Math.sin(time * 0.3 + leader.id * 2) * 200
+        const offsetY = Math.cos(time * 0.2 + leader.id * 1.5) * 150
+        leader.targetX = CANVAS_WIDTH / 2 + offsetX
+        leader.targetY = CANVAS_HEIGHT / 2 + offsetY
       }
       
-      leader.x += leader.vx
-      leader.y += leader.vy
-    } else {
-      leader.vx *= 0.9
-      leader.vy *= 0.9
-      leader.x += leader.vx
-      leader.y += leader.vy
-    }
+      const dx = leader.targetX - leader.x
+      const dy = leader.targetY - leader.y
+      const distance = Math.sqrt(dx ** 2 + dy ** 2)
+      
+      if (distance > 5) {
+        const acceleration = 0.15
+        leader.vx += (dx / distance) * acceleration
+        leader.vy += (dy / distance) * acceleration
+        
+        const speed = Math.sqrt(leader.vx ** 2 + leader.vy ** 2)
+        if (speed > LEADER_MAX_SPEED) {
+          leader.vx = (leader.vx / speed) * LEADER_MAX_SPEED
+          leader.vy = (leader.vy / speed) * LEADER_MAX_SPEED
+        }
+        
+        leader.x += leader.vx
+        leader.y += leader.vy
+      } else {
+        leader.vx *= 0.9
+        leader.vy *= 0.9
+        leader.x += leader.vx
+        leader.y += leader.vy
+      }
 
-    if (leader.x < 0) leader.x = 0
-    if (leader.x > CANVAS_WIDTH) leader.x = CANVAS_WIDTH
-    if (leader.y < 0) leader.y = 0
-    if (leader.y > CANVAS_HEIGHT) leader.y = CANVAS_HEIGHT
+      if (leader.x < 0) leader.x = 0
+      if (leader.x > CANVAS_WIDTH) leader.x = CANVAS_WIDTH
+      if (leader.y < 0) leader.y = 0
+      if (leader.y > CANVAS_HEIGHT) leader.y = CANVAS_HEIGHT
+    }
   }
 
   const updateBoids = () => {
     const boids = boidsRef.current
-    const leader = leaderRef.current
+    const leaders = leadersRef.current
 
-    updateLeader()
+    updateLeaders()
 
     for (const boid of boids) {
+      const nearestLeader = findNearestLeader(boid, leaders)
+      boid.followingLeader = nearestLeader ? nearestLeader.id : null
+
       const sep = separation(boid, boids)
       const ali = alignment(boid, boids)
       const coh = cohesion(boid, boids)
-      const leaderForce = followLeader(boid, leader)
+      const leaderForce = nearestLeader ? followLeader(boid, nearestLeader) : { x: 0, y: 0 }
       const edgeForce = edgeAvoidance(boid)
 
       const totalForceX = sep.x * separationWeight + 
@@ -305,18 +344,25 @@ function App() {
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
     const boids = boidsRef.current
-    const leader = leaderRef.current
+    const leaders = leadersRef.current
 
     for (const boid of boids) {
-      const speed = Math.sqrt(boid.vx ** 2 + boid.vy ** 2)
-      const speedRatio = speed / boid.maxSpeed
-      
       ctx.save()
       ctx.translate(boid.x, boid.y)
       ctx.rotate(boid.angle)
       
-      const alpha = 0.7 + speedRatio * 0.3
-      ctx.fillStyle = `rgba(59, 130, 246, ${alpha})`
+      let boidColor = 'rgba(59, 130, 246, 0.8)'
+      if (boid.followingLeader !== null) {
+        const leader = leaders.find(l => l.id === boid.followingLeader)
+        if (leader) {
+          const r = parseInt(leader.color.slice(1, 3), 16)
+          const g = parseInt(leader.color.slice(3, 5), 16)
+          const b = parseInt(leader.color.slice(5, 7), 16)
+          boidColor = `rgba(${r}, ${g}, ${b}, 0.6)`
+        }
+      }
+      
+      ctx.fillStyle = boidColor
       
       ctx.beginPath()
       ctx.moveTo(10, 0)
@@ -326,7 +372,7 @@ function App() {
       ctx.closePath()
       ctx.fill()
       
-      ctx.fillStyle = `rgba(147, 197, 253, ${alpha * 0.6})`
+      ctx.fillStyle = boidColor.replace('0.6', '0.4').replace('0.8', '0.5')
       ctx.beginPath()
       ctx.moveTo(6, 0)
       ctx.lineTo(-2, -1.5)
@@ -337,36 +383,39 @@ function App() {
       ctx.restore()
     }
 
-    ctx.save()
-    ctx.translate(leader.x, leader.y)
-    ctx.rotate(Math.atan2(leader.vy, leader.vx))
-    
-    ctx.fillStyle = '#f59e0b'
-    ctx.beginPath()
-    ctx.moveTo(15, 0)
-    ctx.lineTo(-7, -5)
-    ctx.lineTo(-4, 0)
-    ctx.lineTo(-7, 5)
-    ctx.closePath()
-    ctx.fill()
-    
-    ctx.fillStyle = '#fbbf24'
-    ctx.beginPath()
-    ctx.moveTo(10, 0)
-    ctx.lineTo(-3, -2.5)
-    ctx.lineTo(-3, 2.5)
-    ctx.closePath()
-    ctx.fill()
-    
-    ctx.restore()
+    for (const leader of leaders) {
+      ctx.save()
+      ctx.translate(leader.x, leader.y)
+      ctx.rotate(Math.atan2(leader.vy, leader.vx))
+      
+      ctx.fillStyle = leader.color
+      ctx.beginPath()
+      ctx.moveTo(15, 0)
+      ctx.lineTo(-7, -5)
+      ctx.lineTo(-4, 0)
+      ctx.lineTo(-7, 5)
+      ctx.closePath()
+      ctx.fill()
+      
+      const lighterColor = leader.color + '80'
+      ctx.fillStyle = lighterColor
+      ctx.beginPath()
+      ctx.moveTo(10, 0)
+      ctx.lineTo(-3, -2.5)
+      ctx.lineTo(-3, 2.5)
+      ctx.closePath()
+      ctx.fill()
+      
+      ctx.restore()
 
-    ctx.strokeStyle = '#10b98130'
-    ctx.lineWidth = 2
-    ctx.setLineDash([5, 5])
-    ctx.beginPath()
-    ctx.arc(leader.x, leader.y, LEADER_FOLLOW_RADIUS, 0, Math.PI * 2)
-    ctx.stroke()
-    ctx.setLineDash([])
+      ctx.strokeStyle = leader.color + '30'
+      ctx.lineWidth = 2
+      ctx.setLineDash([5, 5])
+      ctx.beginPath()
+      ctx.arc(leader.x, leader.y, LEADER_FOLLOW_RADIUS, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
 
     ctx.strokeStyle = '#475569'
     ctx.lineWidth = 1
@@ -386,8 +435,12 @@ function App() {
     if (!canvas) return
 
     const rect = canvas.getBoundingClientRect()
-    leaderRef.current.targetX = event.clientX - rect.left
-    leaderRef.current.targetY = event.clientY - rect.top
+    const leaders = leadersRef.current
+    const mouseLeader = leaders.find(l => l.id === mouseControlledLeader)
+    if (mouseLeader) {
+      mouseLeader.targetX = event.clientX - rect.left
+      mouseLeader.targetY = event.clientY - rect.top
+    }
   }
 
   const handleBoidCountChange = (newCount: number) => {
@@ -410,7 +463,7 @@ function App() {
     <div className="min-h-screen bg-slate-900 p-4">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-4xl font-bold text-white mb-6 text-center">
-          Leader Bird Swarm Simulation
+          Multi-Leader Bird Flocking Simulation
         </h1>
         
         <div className="flex flex-wrap gap-4 mb-6 justify-center">
@@ -446,7 +499,7 @@ function App() {
           </div>
           
           <div className="flex items-center gap-2">
-            <label className="text-white font-medium">Leader:</label>
+            <label className="text-white font-medium">Leader Influence:</label>
             <input
               type="range"
               min="0.5"
@@ -457,6 +510,55 @@ function App() {
               className="w-20"
             />
             <span className="text-white w-8">{leaderInfluence.toFixed(1)}</span>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <label className="text-white font-medium">Leaders:</label>
+            <input
+              type="range"
+              min="1"
+              max="5"
+              value={numLeaders}
+              onChange={(e) => {
+                const newCount = Number(e.target.value)
+                setNumLeaders(newCount)
+                const leaders = leadersRef.current
+                if (newCount > leaders.length) {
+                  for (let i = leaders.length; i < newCount; i++) {
+                    leaders.push({
+                      id: i,
+                      x: Math.random() * CANVAS_WIDTH,
+                      y: Math.random() * CANVAS_HEIGHT,
+                      vx: 0,
+                      vy: 0,
+                      targetX: Math.random() * CANVAS_WIDTH,
+                      targetY: Math.random() * CANVAS_HEIGHT,
+                      color: ['#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#06b6d4'][i % 5],
+                      autonomous: i > 0
+                    })
+                  }
+                } else {
+                  leaders.splice(newCount)
+                }
+              }}
+              className="w-20"
+            />
+            <span className="text-white w-8">{numLeaders}</span>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <label className="text-white font-medium">Mouse Control:</label>
+            <select
+              value={mouseControlledLeader}
+              onChange={(e) => setMouseControlledLeader(Number(e.target.value))}
+              className="bg-slate-700 text-white px-2 py-1 rounded"
+            >
+              {leadersRef.current.slice(0, numLeaders).map((leader) => (
+                <option key={leader.id} value={leader.id}>
+                  Leader {leader.id + 1}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -564,10 +666,11 @@ function App() {
         
         <div className="mt-6 text-center text-slate-300">
           <p className="mb-2">
-            Move your mouse to control the golden leader bird! The blue boids will follow in a swarm formation.
+            Move your mouse to control the selected leader bird! Boids will form sub-flocks around different leaders.
           </p>
           <p className="text-sm">
-            The simulation combines classic boid behaviors (separation, alignment, cohesion) with leader-following behavior.
+            Multiple leaders create realistic bird flocking with natural merging and splitting of sub-flocks.
+            Boids are colored based on which leader they're following.
           </p>
         </div>
       </div>
