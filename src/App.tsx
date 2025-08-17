@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import Editor from '@monaco-editor/react'
 import './App.css'
 
 interface Boid {
@@ -48,6 +49,86 @@ function App() {
   const [alignmentRadius, setAlignmentRadius] = useState(60)
   const [cohesionRadius, setCohesionRadius] = useState(60)
   const [energyLevel, setEnergyLevel] = useState(1.0)
+  const [showAlgorithmEditor, setShowAlgorithmEditor] = useState(false)
+  const [separationCode, setSeparationCode] = useState(`const separation = (boid, boids) => {
+  let steerX = 0
+  let steerY = 0
+  let count = 0
+
+  for (const other of boids) {
+    const d = distance(boid, other)
+    if (d > 0 && d < separationRadius) {
+      const diffX = boid.x - other.x
+      const diffY = boid.y - other.y
+      const weight = (1 / (d * d * d)) + (1 / d)
+      steerX += (diffX / d) * weight
+      steerY += (diffY / d) * weight
+      count++
+    }
+  }
+
+  if (count > 0) {
+    steerX /= count
+    steerY /= count
+    return limitForce({ x: steerX, y: steerY }, boid.maxForce)
+  }
+
+  return { x: 0, y: 0 }
+}`)
+  const [alignmentCode, setAlignmentCode] = useState(`const alignment = (boid, boids) => {
+  let avgVx = 0
+  let avgVy = 0
+  let count = 0
+
+  for (const other of boids) {
+    const d = distance(boid, other)
+    if (d > 0 && d < alignmentRadius) {
+      avgVx += other.vx
+      avgVy += other.vy
+      count++
+    }
+  }
+
+  if (count > 0) {
+    avgVx /= count
+    avgVy /= count
+    const magnitude = Math.sqrt(avgVx ** 2 + avgVy ** 2)
+    if (magnitude > 0) {
+      avgVx = (avgVx / magnitude) * boid.maxSpeed
+      avgVy = (avgVy / magnitude) * boid.maxSpeed
+    }
+    const steer = { x: avgVx - boid.vx, y: avgVy - boid.vy }
+    return limitForce(steer, boid.maxForce)
+  }
+
+  return { x: 0, y: 0 }
+}`)
+  const [cohesionCode, setCohesionCode] = useState(`const cohesion = (boid, boids) => {
+  let centerX = 0
+  let centerY = 0
+  let count = 0
+
+  for (const other of boids) {
+    const d = distance(boid, other)
+    if (d > 0 && d < cohesionRadius) {
+      centerX += other.x
+      centerY += other.y
+      count++
+    }
+  }
+
+  if (count > 0) {
+    centerX /= count
+    centerY /= count
+    return seek(boid, { x: centerX, y: centerY })
+  }
+
+  return { x: 0, y: 0 }
+}`)
+  const [algorithmError, setAlgorithmError] = useState('')
+  const [dynamicSeparation, setDynamicSeparation] = useState<((boid: Boid, boids: Boid[]) => { x: number; y: number }) | null>(null)
+  const [dynamicAlignment, setDynamicAlignment] = useState<((boid: Boid, boids: Boid[]) => { x: number; y: number }) | null>(null)
+  const [dynamicCohesion, setDynamicCohesion] = useState<((boid: Boid, boids: Boid[]) => { x: number; y: number }) | null>(null)
 
   const CANVAS_WIDTH = 1200
   const CANVAS_HEIGHT = 800
@@ -199,6 +280,48 @@ function App() {
     return limitForce(steer, boid.maxForce)
   }
 
+  const evaluateAlgorithmCode = (code: string, functionName: string) => {
+    try {
+      setAlgorithmError('')
+      const context = {
+        distance,
+        limitForce,
+        seek,
+        separationRadius,
+        alignmentRadius,
+        cohesionRadius,
+        Math
+      }
+      
+      const func = new Function(
+        'distance', 'limitForce', 'seek', 'separationRadius', 'alignmentRadius', 'cohesionRadius', 'Math',
+        `${code}; return ${functionName};`
+      )
+      
+      const evaluatedFunction = func(
+        context.distance,
+        context.limitForce,
+        context.seek,
+        context.separationRadius,
+        context.alignmentRadius,
+        context.cohesionRadius,
+        context.Math
+      )
+      
+      return evaluatedFunction
+    } catch (error: any) {
+      setAlgorithmError(`Error in ${functionName}: ${error.message}`)
+      return null
+    }
+  }
+
+  const updateAlgorithmFunction = (code: string, functionName: string, setter: Function) => {
+    const func = evaluateAlgorithmCode(code, functionName)
+    if (func) {
+      setter(func)
+    }
+  }
+
   const edgeAvoidance = (boid: Boid) => {
     let steerX = 0
     let steerY = 0
@@ -302,9 +425,9 @@ function App() {
       const nearestLeader = findNearestLeader(boid, leaders)
       boid.followingLeader = nearestLeader ? nearestLeader.id : null
 
-      const sep = separation(boid, boids)
-      const ali = alignment(boid, boids)
-      const coh = cohesion(boid, boids)
+      const sep = dynamicSeparation ? dynamicSeparation(boid, boids) : separation(boid, boids)
+      const ali = dynamicAlignment ? dynamicAlignment(boid, boids) : alignment(boid, boids)
+      const coh = dynamicCohesion ? dynamicCohesion(boid, boids) : cohesion(boid, boids)
       const leaderForce = nearestLeader ? followLeader(boid, nearestLeader) : { x: 0, y: 0 }
       const edgeForce = edgeAvoidance(boid)
       const noise = generateNoise(boid, currentTime)
@@ -692,6 +815,133 @@ function App() {
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="bg-slate-800 rounded-lg p-4 mb-6 max-w-6xl mx-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-white font-semibold">Algorithm Editor</h3>
+            <button
+              onClick={() => setShowAlgorithmEditor(!showAlgorithmEditor)}
+              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium"
+            >
+              {showAlgorithmEditor ? 'Hide Editor' : 'Show Editor'}
+            </button>
+          </div>
+          
+          {algorithmError && (
+            <div className="bg-red-900 border border-red-700 text-red-200 px-3 py-2 rounded mb-3 text-sm">
+              {algorithmError}
+            </div>
+          )}
+          
+          {showAlgorithmEditor && (
+            <div className="space-y-4">
+              <p className="text-slate-300 text-sm mb-4">
+                Edit the algorithm functions below and see real-time changes in the simulation. 
+                Available functions: distance, limitForce, seek. Available variables: separationRadius, alignmentRadius, cohesionRadius.
+              </p>
+              
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-slate-300 font-medium text-sm">Separation Function</h4>
+                    <button
+                      onClick={() => updateAlgorithmFunction(separationCode, 'separation', setDynamicSeparation)}
+                      className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                  <div className="border border-slate-600 rounded">
+                    <Editor
+                      height="300px"
+                      defaultLanguage="javascript"
+                      value={separationCode}
+                      onChange={(value) => setSeparationCode(value || '')}
+                      theme="vs-dark"
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 12,
+                        lineNumbers: 'on',
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-slate-300 font-medium text-sm">Alignment Function</h4>
+                    <button
+                      onClick={() => updateAlgorithmFunction(alignmentCode, 'alignment', setDynamicAlignment)}
+                      className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                  <div className="border border-slate-600 rounded">
+                    <Editor
+                      height="300px"
+                      defaultLanguage="javascript"
+                      value={alignmentCode}
+                      onChange={(value) => setAlignmentCode(value || '')}
+                      theme="vs-dark"
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 12,
+                        lineNumbers: 'on',
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-slate-300 font-medium text-sm">Cohesion Function</h4>
+                    <button
+                      onClick={() => updateAlgorithmFunction(cohesionCode, 'cohesion', setDynamicCohesion)}
+                      className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                  <div className="border border-slate-600 rounded">
+                    <Editor
+                      height="300px"
+                      defaultLanguage="javascript"
+                      value={cohesionCode}
+                      onChange={(value) => setCohesionCode(value || '')}
+                      theme="vs-dark"
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 12,
+                        lineNumbers: 'on',
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => {
+                    setDynamicSeparation(null)
+                    setDynamicAlignment(null)
+                    setDynamicCohesion(null)
+                    setAlgorithmError('')
+                  }}
+                  className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white rounded text-sm"
+                >
+                  Reset to Default
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-center">
