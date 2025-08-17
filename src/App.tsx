@@ -103,7 +103,7 @@ function App() {
       if (d > 0 && d < separationRadius) {
         const diffX = boid.x - other.x
         const diffY = boid.y - other.y
-        const weight = 1 / (d * d)
+        const weight = (1 / (d * d * d)) + (1 / d)
         steerX += (diffX / d) * weight
         steerY += (diffY / d) * weight
         count++
