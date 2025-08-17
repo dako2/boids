@@ -10,6 +10,9 @@ interface Boid {
   maxSpeed: number
   maxForce: number
   followingLeader: number | null
+  noiseOffsetX: number
+  noiseOffsetY: number
+  noiseScale: number
 }
 
 interface LeaderBird {
@@ -68,6 +71,9 @@ function App() {
         maxSpeed: speed,
         maxForce: 0.15 + Math.random() * 0.1,
         followingLeader: null,
+        noiseOffsetX: Math.random() * 1000,
+        noiseOffsetY: Math.random() * 1000,
+        noiseScale: 0.5 + Math.random() * 0.5,
       })
     }
     boidsRef.current = boids
@@ -79,6 +85,12 @@ function App() {
 
   const distanceToLeader = (boid: Boid, leader: LeaderBird) => {
     return Math.sqrt((boid.x - leader.x) ** 2 + (boid.y - leader.y) ** 2)
+  }
+
+  const generateNoise = (boid: Boid, time: number) => {
+    const noiseX = Math.sin(time * 0.01 + boid.noiseOffsetX) * boid.noiseScale * 0.1
+    const noiseY = Math.cos(time * 0.01 + boid.noiseOffsetY) * boid.noiseScale * 0.1
+    return { x: noiseX, y: noiseY }
   }
 
   const separation = (boid: Boid, boids: Boid[]) => {
@@ -282,6 +294,7 @@ function App() {
   const updateBoids = () => {
     const boids = boidsRef.current
     const leaders = leadersRef.current
+    const currentTime = Date.now()
 
     updateLeaders()
 
@@ -294,18 +307,21 @@ function App() {
       const coh = cohesion(boid, boids)
       const leaderForce = nearestLeader ? followLeader(boid, nearestLeader) : { x: 0, y: 0 }
       const edgeForce = edgeAvoidance(boid)
+      const noise = generateNoise(boid, currentTime)
 
       const totalForceX = (sep.x * separationWeight + 
                          ali.x * alignmentWeight + 
                          coh.x * cohesionWeight + 
                          leaderForce.x * leaderInfluence +
-                         edgeForce.x * 3.0) * energyLevel
+                         edgeForce.x * 3.0 +
+                         noise.x) * energyLevel
 
       const totalForceY = (sep.y * separationWeight + 
                          ali.y * alignmentWeight + 
                          coh.y * cohesionWeight + 
                          leaderForce.y * leaderInfluence +
-                         edgeForce.y * 3.0) * energyLevel
+                         edgeForce.y * 3.0 +
+                         noise.y) * energyLevel
 
       boid.vx += totalForceX * energyLevel
       boid.vy += totalForceY * energyLevel
